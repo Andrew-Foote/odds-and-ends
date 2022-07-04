@@ -1,4 +1,5 @@
-# puts the encounters.txt PBS file into a more easily-readable form
+# very niche tool: puts the encounters.txt PBS file for Pokemon Reborn into a more easily-readable form
+# could probably be easily adapted other games made with Pokemon Essentials
 
 from collections import defaultdict
 from functools import partial
@@ -109,6 +110,7 @@ def parse(ftext):
 
     return areas
 
+
 def density_to_percentage(density):
     # check PokemonEncounters.rb (pbGenerateEncounter, which is called per step)
     # to make sure, but for Reborn it multiples the encounter density by 16
@@ -116,6 +118,7 @@ def density_to_percentage(density):
     # so the density is effectively the encounter probability multiplied by 250
     # hence, to convert it to a percentage, we divide by 250 and multiply by 100
     return (density / 250) * 100
+
 
 def format(areas):
     with io.StringIO() as res:
@@ -143,34 +146,72 @@ def format(areas):
                 #print(encounters)
                 #input()
 
-                for encounter in encounters:
-                    groups[encounter[0]].append(encounter[1:])
+                for pokemon, min_level, max_level, rate in encounters:
+                    groups[pokemon].append((min_level, max_level, rate))
 
-                #print(dict(groups))
-                #input()
+                # print(dict(groups))
+                # input()
 
-                # simplify groups --- calculate the summed encounter rate and just merge together all the level ranges
-                # (i could work out the probabilities of each level but i don't really care about that atm)
-                simplified_groups = []
+                levelwise_groups = defaultdict(lambda: defaultdict(lambda: 0))
 
                 for pokemon, group in groups.items():
-                    min_level = min(slot[0] for slot in group)
-                    max_level = max(slot[1] for slot in group)
-                    rate = sum(slot[2] for slot in group)
-                    simplified_groups.append([pokemon, min_level, max_level, rate])
+                    for min_level, max_level, rate in group:
+                        number_of_levels = (max_level + 1) - min_level
 
-                simplified_groups.sort(key=lambda e: -e[3])
+                        for level in range(min_level, max_level + 1):
+                            levelwise_groups[pokemon][level] += rate / number_of_levels
 
-                #print(simplified_groups)
-                #input()
+                # print(dict(levelwise_groups))
+                # input()
 
-                for pokemon, min_level, max_level, rate in simplified_groups:
-                    level_string = f'lv. {min_level}' if max_level == min_level else f'lv. {min_level} -- {max_level}'
-                    printres(f'  {rate:0>5.2f}% {pokemon} {level_string}')
+                levelgrouped_groups = defaultdict(lambda: [])
+
+                for pokemon, group in levelwise_groups.items():
+                    levels = sorted(group.keys())
+                    levelgrouped_group = levelgrouped_groups[pokemon]
+                    current_line = [levels[0], levels[0], group[levels[0]]]
+
+                    for level in levels[1:]:
+                        if level == current_line[1] + 1 and group[level] == current_line[2] / ((current_line[1] + 1) - current_line[0]):
+                            current_line[1] += 1
+                            current_line[2] += group[level]
+                        else:
+                            levelgrouped_group.append(current_line)
+                            current_line = [level, level, group[level]]
+
+                    levelgrouped_group.append(current_line)
+
+                # print(dict(levelgrouped_groups))
+                # input()
+
+                simplified_groups = []
+
+                for pokemon, group in levelgrouped_groups.items():
+                    level_lines = []
+
+                    for min_level, max_level, rate in group:
+                        level_lines.append([min_level, max_level, rate])
+
+                    level_lines.sort(key=lambda line: -line[2])
+                    simplified_groups.append([pokemon, level_lines])
+
+                simplified_groups.sort(key=lambda line: -sum(rate for min_level, max_level, rate in line[1]))
+
+                for pokemon, level_lines in simplified_groups:
+                    total_rate = sum(rate for min_level, max_level, rate in level_lines)
+                    printres(f'  {total_rate:0>5.2f}% {pokemon}', end=' ')
+                    level_bits = []
+
+                    for min_level, max_level, rate in level_lines:
+                        level_string = f'lv. {min_level}' if max_level == min_level else f'lv. {min_level} -- {max_level}'
+                        level_bits.append(f'{rate:0>5.2f}% {level_string}')
+
+                    printres('[' + ', '.join(level_bits) + ']')
 
             printres()
 
         return res.getvalue()
+
 
 if __name__ == '__main__':
     ifname = sys.argv[1]
